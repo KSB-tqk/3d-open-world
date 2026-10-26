@@ -1,10 +1,13 @@
-import { Suspense, useEffect, useMemo } from 'react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { useAnimations, useGLTF } from '@react-three/drei'
+import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
 import { getCharacter } from '../characters/registry.js'
+import { COMBAT_CONFIG } from '../combat/combatConfig.js'
 
-function LoadedCharacter({ character, movementRef, preview = false }) {
+function LoadedCharacter({ character, movementRef, alive = true, preview = false }) {
+  const visual = useRef()
   const { scene, animations } = useGLTF(character.model)
   const model = useMemo(() => {
     const clone = cloneSkeleton(scene)
@@ -24,46 +27,78 @@ function LoadedCharacter({ character, movementRef, preview = false }) {
     return clone
   }, [scene, character, preview])
   const { actions, names } = useAnimations(animations, model)
-  const clips = useMemo(() => ({
-    idle: names.find(name => name.toLowerCase() === 'idle'),
-    walk: names.find(name => name.toLowerCase() === 'walk'),
-    run: names.find(name => name.toLowerCase() === 'run'),
-  }), [names])
-  const clipForState = state => clips[state] || (state === 'run' ? clips.walk : clips.run) || clips.idle
+  const clips = useMemo(() => {
+    const resolve = aliases => {
+      const normalized = names.map(name => [name, name.toLowerCase()])
+      return aliases.map(alias => normalized.find(([, lower]) => lower === alias)?.[0]).find(Boolean) ||
+        aliases.map(alias => normalized.find(([, lower]) => lower.includes(alias))?.[0]).find(Boolean)
+    }
+    return {
+      idle: resolve(['idle']),
+      walk: resolve(['walk']),
+      run: resolve(['run']),
+      attack: names.find(name => name.toLowerCase() === 'punch') || names.find(name => name.toLowerCase().includes('swordslash')) ||
+        ['attack', 'melee', 'slash', 'swing', 'strike', 'sword'].map(alias => names.find(name => name.toLowerCase().includes(alias))).find(Boolean),
+      hitReact: names.find(name => ['recievehit', 'receivehit', 'hitreact', 'damage'].includes(name.toLowerCase())) ||
+        names.find(name => name.toLowerCase().includes('hit')),
+      death: resolve(['death', 'die', 'dead', 'dying', 'defeat', 'knockout']),
+    }
+  }, [names])
+  const clipForState = state => state === 'attack' ? clips.attack || clips.idle :
+    state === 'hitReact' ? clips.hitReact || clips.idle : clips[state] || (state === 'run' ? clips.walk : clips.run) || clips.idle
 
   useEffect(() => {
-    const state = preview ? 'idle' : movementRef?.current?.animation || 'idle'
-    const clip = clipForState(state)
-    if (!clip || !actions[clip]) return
-    Object.values(actions).forEach(action => action?.fadeOut(0.15))
-    actions[clip].reset().fadeIn(0.15).play()
-    return () => actions[clip]?.fadeOut(0.1)
-  }, [actions, clips, movementRef, preview])
-
-  useEffect(() => {
-    if (preview || !movementRef) return
+    if (!preview && !movementRef) return
     let active = true
+    let previousState = null
+    let previousAttackId = null
     const update = () => {
       if (!active) return
-      const state = movementRef.current?.animation || 'idle'
+      // Character selection previews intentionally have no live player ref.
+      const movement = movementRef?.current
+      const dead = !preview && (alive === false || movement?.alive === false)
+      const state = preview ? 'idle' : dead ? 'death' : movement?.animation === 'attack' ? 'attack' :
+        movement?.hitReactUntil > performance.now() ? 'hitReact' : movement?.animation || 'idle'
+      const attackId = state === 'attack' ? movement?.attackId : null
+      if (state === previousState && attackId === previousAttackId) return
+      if (previousState === 'death' && state !== 'death' && clips.death) actions[clips.death]?.stop()
+      previousState = state
+      previousAttackId = attackId
       const clip = clipForState(state)
-      for (const [name, action] of Object.entries(actions)) {
-        if (!action) continue
-        if (names.includes(clip) && name === clip) {
-          if (!action.isRunning()) action.reset().fadeIn(0.12).play()
-        } else if (action.isRunning()) action.fadeOut(0.12)
-      }
+      if (state === 'death') console.info(clips.death ? `[Death] animation: ${clips.death}` : '[Death] no clip found; using fallback')
+      Object.values(actions).forEach(action => action?.fadeOut(0.1))
+      const action = clip && actions[clip]
+      if (!action) return
+      action.reset()
+      action.clampWhenFinished = state === 'death' || (state === 'attack' && Boolean(clips.attack)) || (state === 'hitReact' && Boolean(clips.hitReact))
+      action.setLoop(action.clampWhenFinished ? THREE.LoopOnce : THREE.LoopRepeat, action.clampWhenFinished ? 1 : Infinity)
+      if (state === 'attack') action.setDuration(COMBAT_CONFIG.attackAnimationMs / 1000)
+      action.fadeIn(0.1).play()
     }
-    const timer = setInterval(update, 120)
+    update()
+    const timer = setInterval(update, 50)
     return () => { active = false; clearInterval(timer) }
-  }, [actions, clips, movementRef, names, preview])
+  }, [actions, alive, clips, movementRef, preview])
 
-  return <group rotation-y={character.rotationOffset} position={character.positionOffset}>
+  useFrame((_, dt) => {
+    if (!visual.current) return
+    const active = !preview && movementRef?.current
+    const dead = alive === false || active?.alive === false
+    const fallbackDeath = dead && !clips.death
+    const fallbackAttack = !dead && active && !clips.attack && movementRef.current.animation === 'attack'
+    const fallbackHit = !dead && active && !clips.hitReact && movementRef.current.hitReactUntil > performance.now()
+    visual.current.rotation.x = THREE.MathUtils.damp(visual.current.rotation.x, fallbackDeath ? -.3 : fallbackAttack ? .18 : fallbackHit ? -.12 : 0, 7, dt)
+    visual.current.rotation.z = THREE.MathUtils.damp(visual.current.rotation.z, fallbackDeath ? 1.48 : 0, 7, dt)
+    const basePosition = character.positionOffset
+    visual.current.position.y = THREE.MathUtils.damp(visual.current.position.y, basePosition[1] + (fallbackDeath ? .22 : 0), 7, dt)
+  })
+
+  return <group ref={visual} rotation-y={character.rotationOffset} position={character.positionOffset}>
     <primitive object={model} />
   </group>
 }
 
-export default function CharacterVisual({ characterId, movementRef, preview = false, fallback = null }) {
+export default function CharacterVisual({ characterId, movementRef, alive = true, preview = false, fallback = null }) {
   const character = getCharacter(characterId)
-  return <Suspense fallback={fallback}><LoadedCharacter character={character} movementRef={movementRef} preview={preview}/></Suspense>
+  return <Suspense fallback={fallback}><LoadedCharacter character={character} movementRef={movementRef} alive={alive} preview={preview}/></Suspense>
 }

@@ -28,7 +28,7 @@ export const DEFAULT_CHARACTER_ID = 'casual_male'
 const warnedCharacterIds = new Set()
 export const getCharacter = id => {
   const character = CHARACTERS.find(item => item.id === id)
-  if (!character && import.meta.env.DEV && !warnedCharacterIds.has(id)) {
+  if (!character && typeof import.meta.env !== 'undefined' && import.meta.env.DEV && !warnedCharacterIds.has(id)) {
     warnedCharacterIds.add(id)
     console.warn('[CHAR DEBUG] Unknown remote characterId:', id, 'available:', CHARACTERS.map(item => item.id))
   }

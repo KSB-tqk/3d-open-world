@@ -2,9 +2,19 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Billboard, Text } from '@react-three/drei'
 import { baseTerrainHeight, riverDistance, terrainHeight } from './terrain.js'
-import { WORLD_MAP } from '../world/worldConfig.js'
+import { WORLD_MAP, WORLD_SEED, WORLD_SIZE } from '../world/worldConfig.js'
 
 const rand = (seed) => { const x = Math.sin(seed * 999.91) * 43758.5453; return x - Math.floor(x) }
+function seededRandom(seed) {
+  let state = seed >>> 0
+  return () => {
+    state += 0x6D2B79F5
+    let value = state
+    value = Math.imul(value ^ value >>> 15, value | 1)
+    value ^= value + Math.imul(value ^ value >>> 7, value | 61)
+    return ((value ^ value >>> 14) >>> 0) / 4294967296
+  }
+}
 function distanceToRoute(x,z,route){
   let best=Infinity
   for(let i=0;i<route.length-1;i++){
@@ -22,6 +32,35 @@ function Tree({ x, z, s, color = '#368c52' }) {
     <mesh castShadow position-y={4.8}><coneGeometry args={[2.8, 5.8, 7]} /><meshStandardMaterial color={color} roughness={1} /></mesh>
     <mesh castShadow position-y={6.8}><coneGeometry args={[2, 4.3, 7]} /><meshStandardMaterial color="#58ad68" roughness={1} /></mesh>
   </group>
+}
+
+function ForestBatch({ trees }) {
+  const meshes = useMemo(() => {
+    const entries = [
+      { geometry: new THREE.CylinderGeometry(.32, .58, 4, 7), y: 2, color: '#76513b' },
+      { geometry: new THREE.ConeGeometry(2.8, 5.8, 7), y: 4.8, colors: ['#286e4e','#347b52','#357f54','#408e58'] },
+      { geometry: new THREE.ConeGeometry(2, 4.3, 7), y: 6.8, colors: ['#4b9c5a','#58ad68','#61b873','#50a860'] },
+    ]
+    return entries.map(entry => {
+      const material = new THREE.MeshStandardMaterial({ color: entry.color || '#ffffff', roughness: 1 })
+      const mesh = new THREE.InstancedMesh(entry.geometry, material, trees.length)
+      const dummy = new THREE.Object3D()
+      trees.forEach((tree, i) => {
+        dummy.position.set(tree.x, terrainHeight(tree.x, tree.z) + entry.y * tree.s, tree.z)
+        dummy.scale.setScalar(tree.s)
+        dummy.rotation.set(0, tree.rotation, 0)
+        dummy.updateMatrix()
+        mesh.setMatrixAt(i, dummy.matrix)
+        if (entry.colors) mesh.setColorAt(i, new THREE.Color(entry.colors[tree.colorIndex % entry.colors.length]))
+      })
+      mesh.instanceMatrix.needsUpdate = true
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      return mesh
+    })
+  }, [trees])
+  return <>{meshes.map((mesh, index) => <primitive key={index} object={mesh} />)}</>
 }
 
 function Rock({ x, z, s }) {
@@ -202,8 +241,31 @@ function WestFort(){
 }
 
 function DebugMarkers(){
-  const labels={spawn:'SPAWN MEADOW',bridge:'BRIDGE',village:'VILLAGE',greatTree:'GREAT TREE',westFort:'WEST FORT',forest:'EAST FOREST',lake:'LAKE',northRidge:'NORTH RIDGE'}
-  return <>{WORLD_MAP.debugLandmarks.map(key=>{const p=WORLD_MAP.landmarks[key];return <group key={key} position={[p.x,terrainHeight(p.x,p.z)+10,p.z]}><mesh><sphereGeometry args={[1.4,8,6]}/><meshBasicMaterial color="#fff26a" depthTest={false}/></mesh><Billboard><Text fontSize={4} outlineWidth={.3} outlineColor="#17232a" color="white" anchorX="center" anchorY="middle">{labels[key]}</Text></Billboard></group>})}</>
+  const labels={spawn:'SPAWN MEADOW',bridge:'MAIN BRIDGE',ford:'FORD',village:'VILLAGE',greatTree:'GREAT TREE',westFort:'WEST FORT',forest:'EAST FOREST',openField:'OPEN FIELD',lake:'LAKE',northRidge:'NORTH RIDGE'}
+  const overlays=useMemo(()=>{
+    const lines=[]
+    const addLine=(points,color)=>{
+      const geometry=new THREE.BufferGeometry().setFromPoints(points.map(([x,z])=>new THREE.Vector3(x,terrainHeight(x,z)+.42,z)))
+      const line=new THREE.LineLoop(geometry,new THREE.LineBasicMaterial({color,depthTest:false}))
+      line.renderOrder=5
+      lines.push(line)
+    }
+    WORLD_MAP.forests.forEach(zone=>addLine([
+      [zone.x-zone.width/2,zone.z-zone.depth/2],[zone.x+zone.width/2,zone.z-zone.depth/2],
+      [zone.x+zone.width/2,zone.z+zone.depth/2],[zone.x-zone.width/2,zone.z+zone.depth/2],
+    ],'#2e6840'))
+    WORLD_MAP.clearings.forEach(zone=>addLine(Array.from({length:48},(_,i)=>{
+      const angle=i/48*Math.PI*2
+      return [zone.x+Math.cos(angle)*zone.radiusX,zone.z+Math.sin(angle)*zone.radiusZ]
+    }),'#f1d77a'))
+    return lines
+  },[])
+  const controlPoints=Object.values(WORLD_MAP.routes).flatMap(route=>route)
+  return <>
+    {overlays.map((line,index)=><primitive key={`overlay-${index}`} object={line}/>) }
+    {controlPoints.map(([x,z],index)=><mesh key={`route-point-${index}`} position={[x,terrainHeight(x,z)+.9,z]}><sphereGeometry args={[.65,6,5]}/><meshBasicMaterial color="#e8ae58" depthTest={false}/></mesh>)}
+    {WORLD_MAP.debugLandmarks.map(key=>{const p=WORLD_MAP.landmarks[key];return <group key={key} position={[p.x,terrainHeight(p.x,p.z)+10,p.z]}><mesh><sphereGeometry args={[1.4,8,6]}/><meshBasicMaterial color="#fff26a" depthTest={false}/></mesh><Billboard><Text fontSize={4} outlineWidth={.3} outlineColor="#17232a" color="white" anchorX="center" anchorY="middle">{labels[key]}</Text></Billboard></group>})}
+  </>
 }
 
 function Ruins() {
@@ -218,10 +280,11 @@ function Flowers() {
   const batches = useMemo(()=>['#fff3be','#f49ab2','#b9a7f5'].map((color,kind)=>{
     const positions=[]
     for(let i=0;i<420;i++) {
-      const x=(rand(i*3+kind*900)-.5)*920, z=(rand(i*7+kind*1200)-.5)*920
+      const x=(rand(i*3+kind*900)-.5)*(WORLD_SIZE-28), z=(rand(i*7+kind*1200)-.5)*(WORLD_SIZE-28)
       const insideForest=WORLD_MAP.forests.some(zone=>Math.abs(x-zone.x)<zone.width*.52&&Math.abs(z-zone.z)<zone.depth*.52)
       const inOpenField=Math.hypot((x-WORLD_MAP.landmarks.openField.x)/105,(z-WORLD_MAP.landmarks.openField.z)/100)<1
-      if(insideForest || (inOpenField&&rand(i+kind*200)>0.12) || Math.hypot(x-WORLD_MAP.spawn.x,z-WORLD_MAP.spawn.z)<40 || Math.hypot(x-WORLD_MAP.village.x,z-WORLD_MAP.village.z)<WORLD_MAP.village.radius || riverDistance(x,z)<WORLD_MAP.river.width*.72) continue
+      const inClearing=WORLD_MAP.clearings.some(c=>Math.hypot((x-c.x)/c.radiusX,(z-c.z)/c.radiusZ)<1)
+      if(insideForest || inClearing || (inOpenField&&rand(i+kind*200)>0.12) || Math.hypot(x-WORLD_MAP.spawn.x,z-WORLD_MAP.spawn.z)<40 || Math.hypot(x-WORLD_MAP.village.x,z-WORLD_MAP.village.z)<WORLD_MAP.village.radius || riverDistance(x,z)<WORLD_MAP.river.width*.72) continue
       positions.push([x,terrainHeight(x,z)+.5,z, .65+rand(i+kind*77)*.8])
     }
     return {color,positions}
@@ -289,16 +352,23 @@ function Ford(){
 
 export default function Scenery({ debugMap = false }){
   const items=useMemo(()=>[
-    [-82,330,1.1],[72,370,.9],[155,395,1.2],[-150,435,.85],[90,300,1.05],
-    [90,-42,.85],[65,-75,.9],[130,-22,1.1],[255,-225,1.2],[278,-205,.9],
-    [210,-140,1.2],[290,-45,1.1],[330,-5,.8],[-112,40,1.25],[-150,85,1.1],
-    [40,245,1.2],[85,265,1.05],[128,245,.9],[-80,290,1.3],[-115,270,1.05],
+    [-86,182,1.1],[78,200,.9],[145,215,1.2],[-150,208,.85],[95,275,1.05],
+    [82,-126,.85],[65,-91,.9],[152,-110,1.1],[258,-214,1.2],[273,-198,.9],
+    [164,-151,1.2],[275,-72,1.1],[268,4,.8],[-158,34,1.25],[-234,82,1.1],
+    [40,214,1.2],[85,266,1.05],[128,234,.9],[-80,192,1.3],[-115,176,1.05],
   ].map(([x,z,s],i)=>({x,z,s,rock:i%5===2})),[])
-  const forest=useMemo(()=>WORLD_MAP.forests.flatMap((zone,zoneIndex)=>Array.from({length:zone.columns*zone.rows},(_,i)=>{
-    const col=i%zone.columns,row=Math.floor(i/zone.columns)
-    const jitterX=(rand(i+zoneIndex*1900)-.5)*zone.width/zone.columns*.42
-    const jitterZ=(rand(i+zoneIndex*2900+400)-.5)*zone.depth/zone.rows*.42
-    return {x:zone.x-zone.width/2+col*zone.width/zone.columns+jitterX,z:zone.z-zone.depth/2+row*zone.depth/zone.rows+jitterZ,s:1.05+rand(i+zoneIndex*3900)*.75,zoneIndex}
-  }).filter(tree=>distanceToRoute(tree.x,tree.z,WORLD_MAP.routes.forestPath)>9)),[])
-  return <><MountainLayers/><WestCliffs/><Water/><Path/><Bridge/><Ford/><Village/><GreatTree/><WestFort/><Ruins/><Flowers/>{items.map((o,i)=>o.rock?<Rock key={i}{...o}/>:<Tree key={i}{...o}/>)}{forest.map((o,i)=><Tree key={`forest-${i}`} {...o} color={o.zoneIndex?'#347b52':i%2?'#286e4e':'#357f54'} />)}{debugMap&&<DebugMarkers/>}</>
+  const forest=useMemo(()=>WORLD_MAP.forests.flatMap((zone,zoneIndex)=>{
+    const random=seededRandom(WORLD_SEED+zone.seed)
+    return Array.from({length:zone.columns*zone.rows},(_,i)=>{
+      const col=i%zone.columns,row=Math.floor(i/zone.columns)
+      const x=zone.x-zone.width/2+(col+.5+(random()-.5)*.48)*zone.width/zone.columns
+      const z=zone.z-zone.depth/2+(row+.5+(random()-.5)*.48)*zone.depth/zone.rows
+      const inClearing=WORLD_MAP.clearings.some(c=>Math.hypot((x-c.x)/c.radiusX,(z-c.z)/c.radiusZ)<1)
+      const nearRoad=Object.values(WORLD_MAP.routes).some(route=>distanceToRoute(x,z,route)<(route===WORLD_MAP.routes.forestPath?8:6))
+      const clearOfStructures=Math.hypot(x-WORLD_MAP.landmarks.westFort.x,z-WORLD_MAP.landmarks.westFort.z)>58
+      if(random()>zone.density || inClearing || nearRoad || !clearOfStructures || riverDistance(x,z)<WORLD_MAP.river.width*.85 || Math.abs(x)>WORLD_SIZE/2-12 || Math.abs(z)>WORLD_SIZE/2-12) return null
+      return {x,z,s:1.05+random()*.75,rotation:random()*Math.PI*2,colorIndex:Math.floor(random()*4),zoneIndex}
+    }).filter(Boolean)
+  }),[])
+  return <><MountainLayers/><WestCliffs/><Water/><Path/><Bridge/><Ford/><Village/><GreatTree/><WestFort/><Ruins/><Flowers/>{items.map((o,i)=>o.rock?<Rock key={i}{...o}/>:<Tree key={i}{...o}/>)}<ForestBatch trees={forest}/>{debugMap&&<DebugMarkers/>}</>
 }

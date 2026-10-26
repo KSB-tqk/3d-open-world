@@ -1,0 +1,46 @@
+export const COMBAT_CONFIG = Object.freeze({
+  maxHp: 100,
+  attackDamage: 25,
+  attackCooldownMs: 800,
+  attackWindupMs: 200,
+  attackActiveMs: 200,
+  attackRecoveryMs: 350,
+  attackAnimationMs: 750,
+  attackHitbox: Object.freeze({
+    width: 1.7,
+    depth: 2.2,
+    centerForward: 1.65,
+    minHeight: 0.35,
+    maxHeight: 2.55,
+  }),
+  playerHurtbox: Object.freeze({ radius: 0.55, height: 3.35 }),
+  showDebug: true,
+  hitFeedbackMs: 900,
+})
+
+export const CAMERA_CONFIG = Object.freeze({
+  explorationDistance: 6.5,
+  explorationHeight: 3.4,
+  combatDistance: 5.8,
+  explorationMinDistance: 5.2,
+  explorationMaxDistance: 10,
+  combatHeight: 2.15,
+  combatShoulderOffset: 0.32,
+  targetHeight: 2.15,
+  targetDamping: 8,
+  combatTargetDamping: 14,
+  combatRotationSpeed: 14,
+  attackTurnSpeed: 240 * Math.PI / 180,
+  attackWindupTurnMultiplier: 1,
+  attackActiveTurnMultiplier: 0.85,
+  attackRecoveryTurnMultiplier: 0.7,
+  cameraZoomInSpeed: 14,
+  cameraZoomOutSpeed: 14,
+  minPitch: -20 * Math.PI / 180,
+  maxPitch: 45 * Math.PI / 180,
+  serverMaxRotationSpeed: 18,
+  rotationAllowance: 0.2,
+  showCombatAimDebug: false,
+})
+
+export const RESPAWN_DELAY_MS = 3000
