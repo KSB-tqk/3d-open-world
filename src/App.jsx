@@ -11,12 +11,15 @@ import MobileControls from './ui/MobileControls.jsx'
 import { CAMERA_CONFIG, COMBAT_CONFIG } from './combat/combatConfig.js'
 import { RIFLE_ENABLED, WEAPONS } from './weapons/registry.js'
 import ShotEffects from './combat/ShotEffects.jsx'
+import useInputMode, { detectInputMode, INPUT_MODE_QUERY } from './hooks/useInputMode.js'
 
-const isTouchCapable = () => typeof window !== 'undefined' && (navigator.maxTouchPoints > 0 || window.matchMedia?.('(pointer: coarse)').matches)
 const isTextEntry = target => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 const activeSpawn = USE_TEST_BATTLEFIELD ? TEST_BATTLEFIELD_SPAWN : WORLD_MAP.spawn
 
 export default function App() {
+  const detectedInputMode = useInputMode()
+  const [forceMobileMode, setForceMobileMode] = useState(false)
+  const mobileMode = detectedInputMode === 'mobile' || (import.meta.env.DEV && forceMobileMode)
   const [name, setName] = useState(''), [characterId, setCharacterId] = useState('casual_male'), [connected, setConnected] = useState(false), [connecting, setConnecting] = useState(false)
   const [players, setPlayers] = useState([]), [messages, setMessages] = useState([]), [worldReady, setWorldReady] = useState(false), [debugMap, setDebugMap] = useState(false)
   const [localAlive, setLocalAlive] = useState(true), [localRespawnPosition, setLocalRespawnPosition] = useState(null), [localSpawnPosition, setLocalSpawnPosition] = useState(null)
@@ -24,8 +27,7 @@ export default function App() {
   const [rifleAiming, setRifleAiming] = useState(false), [weaponShots, setWeaponShots] = useState([])
   const [combatDebug, setCombatDebug] = useState(() => import.meta.env.DEV && COMBAT_CONFIG.showDebug)
   const [localHp, setLocalHp] = useState(COMBAT_CONFIG.maxHp), [localDamageFeedback, setLocalDamageFeedback] = useState(null)
-  const [touchControls, setTouchControls] = useState(isTouchCapable), [forceMobileMode, setForceMobileMode] = useState(false), [chatOpen, setChatOpen] = useState(() => !isTouchCapable()), [chatActive, setChatActive] = useState(false), [chatFocusSignal, setChatFocusSignal] = useState(0)
-  const mobileMode = touchControls || forceMobileMode
+  const [chatOpen, setChatOpen] = useState(() => detectInputMode() !== 'mobile'), [chatActive, setChatActive] = useState(false), [chatFocusSignal, setChatFocusSignal] = useState(0)
   const mobileInputRef = useRef({ x: 0, y: 0, sprint: false })
   const localAttackRef = useRef({ until: 0 }), localPlayerStateRef = useRef(null), attackIntentRef = useRef({ pending: false }), fireRequestRef = useRef(null), weaponFireAtRef = useRef(0), weaponFireSequenceRef = useRef(0), lastLocalShotAt = useRef(0), feedbackSequence = useRef(0)
   const rifleAimingRef = useRef(rifleAiming)
@@ -152,24 +154,27 @@ export default function App() {
     return () => { socket.off('connect', onConnect); socket.off('disconnect', onDisconnect); socket.off('connect_error', onConnectError); socket.off('player:spawn', onSpawn); socket.off('players:existing', onExisting); socket.off('player:joined', onJoin); socket.off('player:moved', onMove); socket.off('player:left', onLeft); socket.off('combat:attackStarted', onAttackStarted); socket.off('combat:attackRejected', onAttackRejected); socket.off('combat:hit', onCombatHit); socket.off('combat:death', onDeath); socket.off('player:respawn', onRespawn); socket.off('chat:message', onChat); socket.off('system:message', onSystem); socket.off('weapon:fired', onWeaponFired) }
   }, [name, characterId, clearAttackCameraState])
   useEffect(() => {
-    const onPointerDown = event => {
-      if (event.pointerType === 'touch' && !touchControls) {
-        setTouchControls(true)
-        setChatOpen(false)
-        setChatActive(false)
-      }
+    if (mobileMode) {
+      setChatOpen(false)
+      setChatActive(false)
+      mobileInputRef.current = { x: 0, y: 0, sprint: false }
     }
-    const onResize = () => {
-      if (isTouchCapable() && !touchControls) {
-        setTouchControls(true)
-        setChatOpen(false)
-        setChatActive(false)
-      }
-    }
-    addEventListener('pointerdown', onPointerDown, { passive: true })
-    addEventListener('resize', onResize)
-    return () => { removeEventListener('pointerdown', onPointerDown); removeEventListener('resize', onResize) }
-  }, [touchControls])
+  }, [mobileMode])
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const pointerCoarse = matchMedia('(pointer: coarse)').matches
+    const pointerFine = matchMedia('(pointer: fine)').matches
+    console.info('[InputMode]', {
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      pointerCoarse,
+      pointerFine,
+      maxTouchPoints: navigator.maxTouchPoints,
+      detectedMode: detectedInputMode,
+      forcedMobile: forceMobileMode,
+      query: INPUT_MODE_QUERY,
+    })
+  }, [detectedInputMode, forceMobileMode])
   useEffect(() => {
     const onQuickChat = event => {
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey || isTextEntry(event.target)) return
