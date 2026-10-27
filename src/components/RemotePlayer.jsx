@@ -17,10 +17,18 @@ export default function RemotePlayer({ player }) {
     movement.current.alive = alive
     movement.current.speed = !alive || target.animation === 'idle' ? 0 : target.animation === 'run' ? 20 : 10
     movement.current.sprint = target.animation === 'run'
+    movement.current.isBlocking = alive && player.isBlocking === true
     const attacking = alive && player.attack?.until > performance.now()
     const firingRifle = alive && player.fireAt && performance.now() - player.fireAt < COMBAT_CONFIG.rifleFireVisualMs
     movement.current.animation = !alive ? 'death' : attacking ? 'attack' : firingRifle ? 'rifleFire' : target.animation === 'attack' ? 'idle' : target.animation || 'idle'
     movement.current.attackId = attacking ? player.attack.attackId : null
+    movement.current.attackProgress = attacking ? THREE.MathUtils.clamp((performance.now() - player.attack.startedAt) / player.attack.durationMs, 0, 1) : 0
+    movement.current.attackWindupRatio = attacking ? player.attack.windupMs / player.attack.durationMs : undefined
+    movement.current.attackActiveEndRatio = attacking ? (player.attack.windupMs + player.attack.activeMs) / player.attack.durationMs : undefined
+    movement.current.attackStartedAt = attacking ? player.attack.startedAt : 0
+    movement.current.attackDurationMs = attacking ? player.attack.durationMs : 0
+    movement.current.attackWindupMs = attacking ? player.attack.windupMs : 0
+    movement.current.attackActiveMs = attacking ? player.attack.activeMs : 0
     movement.current.fireSequence = player.fireSequence || 0
   })
   return <group ref={node => { group.current = node; if (node) node.userData.isPlayerCharacter = true }}><PlayerModel movementRef={movement} name={player.name} characterId={player.characterId} hp={player.hp} alive={player.alive !== false} damageFeedback={player.damageFeedback} equippedWeaponId={player.equippedWeaponId ?? 'rifle'}/></group>

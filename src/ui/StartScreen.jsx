@@ -4,10 +4,12 @@ import { ContactShadows, OrbitControls, useProgress } from '@react-three/drei'
 import { CHARACTERS, DEFAULT_CHARACTER_ID } from '../characters/registry.js'
 import CharacterVisual from '../components/CharacterVisual.jsx'
 
-const STORAGE_KEY = 'sunmeadow-character-id'
+const STORAGE_KEY = 'sunmeadow-character-id-v3'
 const getSavedCharacter = () => {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
+    // Existing browsers may have Base Knight saved from the previous default.
+    if (saved === 'base_knight') return DEFAULT_CHARACTER_ID
     return CHARACTERS.some(character => character.id === saved) ? saved : DEFAULT_CHARACTER_ID
   } catch { return DEFAULT_CHARACTER_ID }
 }

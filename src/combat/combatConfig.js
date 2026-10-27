@@ -6,6 +6,8 @@ export const COMBAT_CONFIG = Object.freeze({
   attackActiveMs: 200,
   attackRecoveryMs: 350,
   attackAnimationMs: 750,
+  blockFacingHalfAngleDegrees: 60,
+  blockMovementMultiplier: 0.72,
   rifleFireVisualMs: 420,
   attackHitbox: Object.freeze({
     width: 1.7,

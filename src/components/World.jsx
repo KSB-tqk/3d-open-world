@@ -9,15 +9,17 @@ import Player from './Player.jsx'
 import RemotePlayer from './RemotePlayer.jsx'
 import SceneReady from './SceneReady.jsx'
 import CatNPC from './CatNPC.jsx'
-import { TEST_BATTLEFIELD_SPAWN, USE_TEST_BATTLEFIELD, WORLD_MAP } from '../world/worldConfig.js'
+import TroopField from './TroopField.jsx'
+import { TEST_BATTLEFIELD_DEBUG_SPAWNS, TEST_BATTLEFIELD_SPAWN, USE_TEST_BATTLEFIELD, WORLD_MAP } from '../world/worldConfig.js'
 import { activeTerrainHeight } from './terrain.js'
 import CombatDebug from '../combat/CombatDebug.jsx'
 import { CAMERA_CONFIG } from '../combat/combatConfig.js'
 
-export default function World({ name, characterId, socket, connected, playerList, onReady, debugMap, combatDebug, mobileInputRef, localAttackRef, localPlayerStateRef, attackIntentRef, fireRequestRef, weaponFireAtRef, weaponFireSequenceRef, localHp, localAlive, localSpawnPosition, localRespawnPosition, localDamageFeedback, onAttack, onFire, onAimChange, isAiming, onAttackReady, onAttackFinished, combatMode, mobileControls, chatOpen, chatActive }) {
+export default function World({ name, characterId, socket, connected, playerList, onReady, debugMap, combatDebug, mobileInputRef, localAttackRef, localPlayerStateRef, fireRequestRef, weaponFireAtRef, weaponFireSequenceRef, localHp, localAlive, localBlocking, localSpawnPosition, localRespawnPosition, localDamageFeedback, onAttack, onFire, onAimChange, onBlockChange, isAiming, onAttackFinished, combatMode, mobileControls, chatOpen, chatActive }) {
   const controls = useRef(), fallbackState = useRef(null), lastSent = useRef(0)
   const localState = localPlayerStateRef || fallbackState
-  const spawn = localSpawnPosition || (USE_TEST_BATTLEFIELD ? TEST_BATTLEFIELD_SPAWN : WORLD_MAP.spawn)
+  const debugSpawn = import.meta.env.DEV && new URLSearchParams(window.location.search).get('debugSpawn') === '1'
+  const spawn = localSpawnPosition || (debugSpawn && USE_TEST_BATTLEFIELD ? TEST_BATTLEFIELD_DEBUG_SPAWNS.A : USE_TEST_BATTLEFIELD ? TEST_BATTLEFIELD_SPAWN : WORLD_MAP.spawn)
   useFrame((_, dt) => {
     lastSent.current += dt
     if (connected && localState.current && localState.current.alive !== false && lastSent.current >= .075) {
@@ -26,7 +28,8 @@ export default function World({ name, characterId, socket, connected, playerList
     }
   })
   return <>
-    {USE_TEST_BATTLEFIELD ? <TestBattlefield/> : <><Terrain/><Scenery debugMap={debugMap}/></>}<Player controlsRef={controls} name={name} characterId={characterId} playerId={socket?.id || name} networkRef={localState} mobileInputRef={mobileInputRef} attackRef={localAttackRef} attackIntentRef={attackIntentRef} fireRequestRef={fireRequestRef} weaponFireAtRef={weaponFireAtRef} weaponFireSequenceRef={weaponFireSequenceRef} hp={localHp} alive={localAlive} spawnPosition={localSpawnPosition} respawnPosition={localRespawnPosition} damageFeedback={localDamageFeedback} onAttack={onAttack} onFire={onFire} onAimChange={onAimChange} isAiming={isAiming} onAttackReady={onAttackReady} onAttackFinished={onAttackFinished} combatMode={combatMode} mobileControls={mobileControls} controlsDisabled={!localAlive || chatActive || (mobileControls && chatOpen)}/>
+    {USE_TEST_BATTLEFIELD ? <TestBattlefield/> : <><Terrain/><Scenery debugMap={debugMap}/></>}<Player controlsRef={controls} name={name} characterId={characterId} playerId={socket?.id || name} networkRef={localState} mobileInputRef={mobileInputRef} attackRef={localAttackRef} fireRequestRef={fireRequestRef} weaponFireAtRef={weaponFireAtRef} weaponFireSequenceRef={weaponFireSequenceRef} hp={localHp} alive={localAlive} isBlocking={localBlocking} onBlockChange={onBlockChange} spawnPosition={localSpawnPosition} respawnPosition={localRespawnPosition} damageFeedback={localDamageFeedback} onAttack={onAttack} onFire={onFire} onAimChange={onAimChange} isAiming={isAiming} onAttackFinished={onAttackFinished} combatMode={combatMode} mobileControls={mobileControls} controlsDisabled={!localAlive || chatActive || (mobileControls && chatOpen)}/>
+    <TroopField socket={socket}/>
     <CatNPC playerStateRef={localState} mobileControls={mobileControls} interactionDisabled={chatActive || !localAlive}/>
     {import.meta.env.DEV && <CombatDebug enabled={combatDebug} showAimDirection={CAMERA_CONFIG.showCombatAimDebug} getTransform={() => localState.current} getAttack={() => localAttackRef.current}/>}
     {playerList.map(player => <group key={player.id}><RemotePlayer player={player}/>{import.meta.env.DEV && <CombatDebug enabled={combatDebug} showAimDirection={CAMERA_CONFIG.showCombatAimDebug} getTransform={() => player.target.current} getAttack={() => player.attack}/>}</group>)}

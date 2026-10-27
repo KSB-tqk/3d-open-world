@@ -14,17 +14,43 @@ const filenames = [
 
 const displayName = filename => filename.replace(/\.gltf$/i, '').replace(/_/g, ' ')
 
-export const CHARACTERS = filenames.map(filename => ({
-  id: filename.replace(/\.gltf$/i, '').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-  name: displayName(filename),
-  model: `/models/characters/${filename}`,
-  height: filename === 'Pug.gltf' ? 1.1 : filename === 'Cow.gltf' ? 2.2 : 3.35,
-  scale: 1,
-  rotationOffset: 0,
-  positionOffset: [0, 0, 0],
-}))
+export const SHOW_KNIGHT_DEBUG = false
 
-export const DEFAULT_CHARACTER_ID = 'casual_male'
+export const CHARACTERS = [
+  {
+    id: 'base_knight',
+    name: 'Base Knight',
+    model: '/models/characters/base_knight_rigged.glb',
+    // Source OBJ is about 1.884 units tall; normalize to the existing 3.35-unit avatar height.
+    height: 3.35,
+    scale: 1,
+    // The sword and shield face the camera in a +Z front view, matching game forward.
+    rotationOffset: 0,
+    positionOffset: [0, 0, 0],
+  },
+  {
+    id: 'knight',
+    name: 'Knight',
+    model: '/models/characters/low_poly_knight_attack_animated_v1.glb',
+    height: 3.35,
+    scale: 1,
+    // Game avatars face local +Z. This model faces local -Z.
+    rotationOffset: Math.PI,
+    positionOffset: [0, 0, 0],
+    proceduralRig: 'knight',
+  },
+  ...filenames.map(filename => ({
+    id: filename.replace(/\.gltf$/i, '').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+    name: displayName(filename),
+    model: `/models/characters/${filename}`,
+    height: filename === 'Pug.gltf' ? 1.1 : filename === 'Cow.gltf' ? 2.2 : 3.35,
+    scale: 1,
+    rotationOffset: 0,
+    positionOffset: [0, 0, 0],
+  })),
+]
+
+export const DEFAULT_CHARACTER_ID = 'knight'
 const warnedCharacterIds = new Set()
 export const getCharacter = id => {
   const character = CHARACTERS.find(item => item.id === id)

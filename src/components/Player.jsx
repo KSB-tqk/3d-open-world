@@ -13,14 +13,16 @@ const RIFLE_CONFIG = WEAPONS.rifle
 
 const typingTarget = (target) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 
-export default function Player({ controlsRef, name = 'Player', characterId, playerId = '', networkRef, mobileInputRef, attackRef, attackIntentRef, hp, alive = true, spawnPosition, respawnPosition, damageFeedback, onAttack, onFire, onAimChange, fireRequestRef, weaponFireAtRef, weaponFireSequenceRef, isAiming = false, onAttackReady, onAttackFinished, combatMode = false, mobileControls = false, controlsDisabled = false }) {
+export default function Player({ controlsRef, name = 'Player', characterId, playerId = '', networkRef, mobileInputRef, attackRef, hp, alive = true, isBlocking = false, onBlockChange, spawnPosition, respawnPosition, damageFeedback, onAttack, onFire, onAimChange, fireRequestRef, weaponFireAtRef, weaponFireSequenceRef, isAiming = false, onAttackFinished, combatMode = false, mobileControls = false, controlsDisabled = false }) {
   const ref = useRef(), velocity = useRef(new THREE.Vector3()), movement = useRef({ speed: 0, sprint: false, time: 0 }), keys = useRef(Object.create(null)), muzzleRef = useRef(), aimPitchRef = useRef(0), aimingRef = useRef(isAiming), previousMovementPosition = useRef(new THREE.Vector3()), resolvedMovementPosition = useRef({ x: 0, z: 0 }), lastGroundSurface = useRef(null)
   const cameraAim = useRef(new THREE.Vector3()), cameraRight = useRef(new THREE.Vector3()), desiredTarget = useRef(new THREE.Vector3()), cameraBlendWeight = useRef(0), explorationDistance = useRef(CAMERA_CONFIG.explorationDistance), completedAttackId = useRef(null)
   const followPosition = useRef(new THREE.Vector3()), previousFollowPosition = useRef(null), followDelta = useRef(new THREE.Vector3())
   const inputModeRef = useRef(null), cameraPointerRef = useRef(null), physicalRightPointerId = useRef(null), lastMousePositions = useRef(new Map())
-  inputModeRef.current = { mobileControls, forcedAttackNavigate: combatMode || Boolean(attackIntentRef?.current?.pending), controlsDisabled, alive }
+  inputModeRef.current = { mobileControls, controlsDisabled, alive }
   const aliveRef = useRef(alive)
   aliveRef.current = alive
+  const blockingRef = useRef(isBlocking)
+  blockingRef.current = isBlocking
   aimingRef.current = isAiming
   const { camera, gl, scene } = useThree()
   const spawn = spawnPosition || getPlayerSpawn(playerId)
@@ -40,7 +42,7 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
   }
   const updateCameraFraming = (dt, playerPosition) => {
     if (!controlsRef.current) return
-    const cameraModeActive = isAiming || combatMode || attackIntentRef?.current?.pending || cameraBlendWeight.current > 0.001
+    const cameraModeActive = isAiming || combatMode || cameraBlendWeight.current > 0.001
     const weight = cameraBlendWeight.current
     const targetHeight = THREE.MathUtils.lerp(CAMERA_CONFIG.targetHeight, isAiming ? CAMERA_CONFIG.rifleAimHeight : CAMERA_CONFIG.combatHeight, weight)
     const target = desiredTarget.current.set(playerPosition.x, playerPosition.y + targetHeight, playerPosition.z)
@@ -64,8 +66,12 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
     if (camera.position.y < minimumY) camera.position.y = minimumY
   }
   useEffect(() => {
-    const down = (e) => { if (!aliveRef.current || inputModeRef.current?.controlsDisabled || typingTarget(e.target)) return; keys.current[e.code] = true }
-    const up = (e) => { keys.current[e.code] = false }
+    const down = (e) => {
+      if (!aliveRef.current || inputModeRef.current?.controlsDisabled || typingTarget(e.target)) return
+      keys.current[e.code] = true
+      if (e.code === 'KeyQ') { e.preventDefault(); onBlockChange?.(true) }
+    }
+    const up = (e) => { keys.current[e.code] = false; if (e.code === 'KeyQ') onBlockChange?.(false) }
     const rotateCamera = (dx, dy, pointerType) => {
       const controls = controlsRef.current
       const element = gl.domElement
@@ -110,11 +116,9 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
       const activePointer = cameraPointerRef.current
       const isOwnedDrag = activePointer?.pointerId === event.pointerId && activePointer.pointerType === event.pointerType
       if (!mode?.alive || mode.controlsDisabled) return
-      const forcedAttackNavigate = Boolean((mode?.forcedAttackNavigate || attackIntentRef?.current?.pending) && !mode.controlsDisabled && mode.alive)
-      const cameraNavigationActive = physicalRightPointerId.current !== null || forcedAttackNavigate
       if (event.pointerType === 'mouse') {
         const previous = lastMousePositions.current.get(event.pointerId)
-        if (cameraNavigationActive && (isOwnedDrag || forcedAttackNavigate) && previous) {
+        if (physicalRightPointerId.current !== null && isOwnedDrag && previous) {
           rotateCamera(event.clientX - previous.x, event.clientY - previous.y, 'mouse')
         }
         lastMousePositions.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
@@ -135,6 +139,7 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
     }
     const clearTransientInput = () => {
       for (const code of Object.keys(keys.current)) keys.current[code] = false
+      if (blockingRef.current) onBlockChange?.(false)
       mobileInputRef && (mobileInputRef.current = { x: 0, y: 0, sprint: false })
       const activePointer = cameraPointerRef.current
       if (activePointer && gl.domElement.hasPointerCapture?.(activePointer.pointerId)) {
@@ -188,7 +193,7 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
       document.removeEventListener('visibilitychange', onVisibilityChange)
       clearTransientInput()
     }
-  }, [controlsRef, gl, mobileInputRef, camera, scene, onFire, onAimChange, fireRequestRef])
+  }, [controlsRef, gl, mobileInputRef, camera, scene, onFire, onAimChange, onBlockChange, fireRequestRef])
   useEffect(() => {
     if (alive || !ref.current) return
     velocity.current.set(0, 0, 0)
@@ -243,7 +248,7 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
     const now = performance.now()
     const currentAttack = attackRef?.current
     const isAttacking = Boolean(currentAttack?.until > now)
-    const shouldUseCombatCamera = alive && (isAiming || combatMode || Boolean(attackIntentRef?.current?.pending) || isAttacking)
+    const shouldUseCombatCamera = alive && (isAiming || combatMode || isAttacking)
     const targetWeight = shouldUseCombatCamera ? 1 : 0
     if (targetWeight === 1 && cameraBlendWeight.current <= 0.001 && controlsRef.current) {
       const currentDistance = camera.position.distanceTo(controlsRef.current.target)
@@ -258,16 +263,16 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
       velocity.current.set(0, 0, 0)
       movement.current.speed = 0
       movement.current.sprint = false
+      movement.current.isBlocking = false
       movement.current.animation = 'death'
       movement.current.attackId = null
-      if (attackIntentRef) attackIntentRef.current.pending = false
       movement.current.alive = false
-      if (networkRef) networkRef.current = { position: { x: ref.current.position.x, y: ref.current.position.y, z: ref.current.position.z }, rotation: ref.current.rotation.y, animation: 'death', alive: false }
+      if (networkRef) networkRef.current = { position: { x: ref.current.position.x, y: ref.current.position.y, z: ref.current.position.z }, rotation: ref.current.rotation.y, animation: 'death', alive: false, isBlocking: false }
       const playerPosition = syncCameraTranslation()
       updateCameraFraming(dt, playerPosition)
       return
     }
-    const aiming = isAiming || combatMode || Boolean(attackIntentRef?.current?.pending)
+    const aiming = isAiming || combatMode
     const direction = cameraAim.current
     camera.getWorldDirection(direction)
     aimPitchRef.current = isAiming ? Math.atan2(direction.y, Math.hypot(direction.x, direction.z)) : 0
@@ -281,17 +286,18 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
     const rotationSpeed = isAttacking ? CAMERA_CONFIG.attackTurnSpeed * attackTurnMultiplier : CAMERA_CONFIG.combatRotationSpeed
     const keyboardDisabled = controlsDisabled || typingTarget(document.activeElement)
     const pressed = keys.current, mobile = keyboardDisabled ? { x: 0, y: 0, sprint: false } : mobileInputRef?.current || { x: 0, y: 0, sprint: false }
+    const blocking = isBlocking && !keyboardDisabled
     const f = (keyboardDisabled ? 0 : (pressed.KeyW || pressed.ArrowUp ? 1 : 0) - (pressed.KeyS || pressed.ArrowDown ? 1 : 0)) - mobile.y
     const r = (keyboardDisabled ? 0 : (pressed.KeyD || pressed.ArrowRight ? 1 : 0) - (pressed.KeyA || pressed.ArrowLeft ? 1 : 0)) + mobile.x
     const input = new THREE.Vector3(r, 0, -f)
     const magnitude = Math.min(1, input.length())
-    const sprint = !keyboardDisabled && !isAiming && (!!(pressed.ShiftLeft || pressed.ShiftRight) || !!mobile.sprint)
+    const sprint = !keyboardDisabled && !blocking && !isAiming && (!!(pressed.ShiftLeft || pressed.ShiftRight) || !!mobile.sprint)
     if (magnitude > 0.01) {
       input.normalize()
       const yaw = Math.atan2(camera.position.x - ref.current.position.x, camera.position.z - ref.current.position.z)
       input.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
-      velocity.current.lerp(input.multiplyScalar((sprint ? 24 : 12) * magnitude), Math.min(1, dt * 9))
-      if (!aiming) ref.current.rotation.y = Math.atan2(velocity.current.x, velocity.current.z)
+      velocity.current.lerp(input.multiplyScalar((sprint ? 24 : 12) * (blocking ? COMBAT_CONFIG.blockMovementMultiplier : 1) * magnitude), Math.min(1, dt * 9))
+      if (!aiming && !blocking) ref.current.rotation.y = Math.atan2(velocity.current.x, velocity.current.z)
     } else velocity.current.lerp(new THREE.Vector3(), Math.min(1, dt * 8))
     if (aiming && direction.lengthSq() > 0.0001) {
       const yawDelta = Math.atan2(Math.sin(aimYaw - ref.current.rotation.y), Math.cos(aimYaw - ref.current.rotation.y))
@@ -314,19 +320,22 @@ export default function Player({ controlsRef, name = 'Player', characterId, play
     const playerPosition = syncCameraTranslation()
     movement.current.speed = velocity.current.length(); movement.current.sprint = sprint; movement.current.time += dt
     movement.current.alive = true
+    movement.current.isBlocking = blocking
     const locomotion = movement.current.speed > .5 ? (sprint ? 'run' : 'walk') : 'idle'
     const attacking = attackRef?.current?.until > now
     const firingRifle = weaponFireAtRef?.current && now - weaponFireAtRef.current < COMBAT_CONFIG.rifleFireVisualMs
     if (attacking) attackRef.current.rotation = ref.current.rotation.y
     movement.current.animation = attacking ? 'attack' : firingRifle ? 'rifleFire' : locomotion
     movement.current.attackId = attacking ? attackRef.current.attackId : null
+    movement.current.attackProgress = attacking ? THREE.MathUtils.clamp((now - attackRef.current.startedAt) / attackRef.current.durationMs, 0, 1) : 0
+    movement.current.attackWindupRatio = attacking ? attackRef.current.windupMs / attackRef.current.durationMs : undefined
+    movement.current.attackActiveEndRatio = attacking ? (attackRef.current.windupMs + attackRef.current.activeMs) / attackRef.current.durationMs : undefined
+    movement.current.attackStartedAt = attacking ? attackRef.current.startedAt : 0
+    movement.current.attackDurationMs = attacking ? attackRef.current.durationMs : 0
+    movement.current.attackWindupMs = attacking ? attackRef.current.windupMs : 0
+    movement.current.attackActiveMs = attacking ? attackRef.current.activeMs : 0
     movement.current.fireSequence = weaponFireSequenceRef?.current || 0
-    if (networkRef) networkRef.current = { position: { x: ref.current.position.x, y: ref.current.position.y, z: ref.current.position.z }, rotation: ref.current.rotation.y, animation: movement.current.animation, alive: true }
-    const attackIntent = attackIntentRef?.current
-    if (attackIntent?.pending && (Math.abs(Math.atan2(Math.sin(aimYaw - ref.current.rotation.y), Math.cos(aimYaw - ref.current.rotation.y))) < 0.12 || performance.now() - attackIntent.requestedAt >= 650)) {
-      attackIntent.pending = false
-      onAttackReady?.(ref.current.rotation.y)
-    }
+    if (networkRef) networkRef.current = { position: { x: ref.current.position.x, y: ref.current.position.y, z: ref.current.position.z }, rotation: ref.current.rotation.y, animation: movement.current.animation, alive: true, isBlocking: blocking }
     if (!attacking && currentAttack?.until > 0 && completedAttackId.current !== currentAttack.attackId) {
       completedAttackId.current = currentAttack.attackId
       onAttackFinished?.(currentAttack.attackId)

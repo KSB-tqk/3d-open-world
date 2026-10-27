@@ -8,6 +8,7 @@ import { getWeapon, RIFLE_ENABLED } from '../src/weapons/registry.js'
 import { getPlayerSpawn, USE_TEST_BATTLEFIELD } from '../src/world/worldConfig.js'
 import { terrainHeight } from '../src/components/terrain.js'
 import { loadTestBattlefieldMap } from './testBattlefieldMap.js'
+import { createTroopSystem } from './troopSystem.js'
 
 const PORT = Number(process.env.PORT || 3001)
 const players = new Map()
@@ -19,7 +20,7 @@ let attackSequence = 0
 const cleanName = value => typeof value === 'string' ? value.trim().replace(/[<>\u0000-\u001f]/g, '').slice(0, 20) : ''
 const validSnapshot = data => data && data.position && ['x','y','z'].every(key => Number.isFinite(data.position[key]) && Math.abs(data.position[key]) <= 510) && Number.isFinite(data.rotation) && typeof data.animation === 'string'
 const validCombatState = player => player && player.position && ['x','y','z'].every(key => Number.isFinite(player.position[key]) && Math.abs(player.position[key]) <= 510) && Number.isFinite(player.rotation) && Number.isFinite(player.hp)
-const toClientPlayer = player => ({ id: player.id, name: player.name, characterId: player.characterId, equippedWeaponId: player.equippedWeaponId, side: player.side, position: player.position, rotation: player.rotation, animation: player.animation, hp: player.hp, alive: player.alive })
+const toClientPlayer = player => ({ id: player.id, name: player.name, characterId: player.characterId, equippedWeaponId: player.equippedWeaponId, side: player.side, position: player.position, rotation: player.rotation, animation: player.animation, hp: player.hp, alive: player.alive, isBlocking: player.isBlocking })
 const battlefield = USE_TEST_BATTLEFIELD ? await loadTestBattlefieldMap() : null
 const normalizeAngle = angle => Math.atan2(Math.sin(angle), Math.cos(angle))
 const angleDelta = (from, to) => normalizeAngle(to - from)
@@ -64,13 +65,28 @@ function getSpawnPosition(side, playerId) {
 
 function findAttackTargets(attacker, attack) {
   const hitboxAttacker = { ...attacker, rotation: attack.rotation }
-  return [...players.values()]
-    .filter(target => {
-      return target.id !== attacker.id && target.alive && target.hp > 0 && !attack.hitTargets.has(target.id) &&
-        validCombatState(target) && attackOverlapsPlayer(hitboxAttacker, target)
-    })
-    .sort((a, b) => Math.hypot(a.position.x - attacker.position.x, a.position.z - attacker.position.z) -
-      Math.hypot(b.position.x - attacker.position.x, b.position.z - attacker.position.z))
+  const targets = [...players.values()]
+    .filter(target => target.id !== attacker.id && target.alive && target.hp > 0 &&
+      !attack.hitTargets.has(`player:${target.id}`) && validCombatState(target) && attackOverlapsPlayer(hitboxAttacker, target))
+    .map(entity => ({ kind: 'player', entity }))
+  for (const entity of troopSystem.getTroops().values()) {
+    if (!entity.alive || entity.hp <= 0 || entity.team === attacker.side || !attackOverlapsPlayer(hitboxAttacker, entity)) continue
+    if (!attack.hitTargets.has(`troop:${entity.id}`)) targets.push({ kind: 'troop', entity })
+  }
+  return targets.sort((a, b) => Math.hypot(a.entity.position.x - attacker.position.x, a.entity.position.z - attacker.position.z) -
+    Math.hypot(b.entity.position.x - attacker.position.x, b.entity.position.z - attacker.position.z))
+}
+
+function blocksFromFront(target, attacker) {
+  if (!target.isBlocking) return false
+  const dx = attacker.position.x - target.position.x
+  const dz = attacker.position.z - target.position.z
+  const distance = Math.hypot(dx, dz)
+  if (distance < 1e-5) return true
+  const facingX = Math.sin(target.rotation)
+  const facingZ = Math.cos(target.rotation)
+  const facingDot = (facingX * dx + facingZ * dz) / distance
+  return facingDot >= Math.cos(COMBAT_CONFIG.blockFacingHalfAngleDegrees * Math.PI / 180)
 }
 
 function damagePlayer(attacker, target, requestedDamage, attackId) {
@@ -85,6 +101,7 @@ function damagePlayer(attacker, target, requestedDamage, attackId) {
 
   target.alive = false
   target.isAiming = false
+  target.isBlocking = false
   target.animation = 'death'
   target.diedAt = Date.now()
   cancelAttack(target)
@@ -99,12 +116,16 @@ function damagePlayer(attacker, target, requestedDamage, attackId) {
     target.hp = COMBAT_CONFIG.maxHp
     target.alive = true
     target.isAiming = false
+    target.isBlocking = false
     target.diedAt = null
     target.respawnTimer = null
     io.emit('player:respawn', { playerId: target.id, side: target.side, position: target.position, rotation: target.rotation, animation: target.animation, hp: target.hp, alive: true })
     console.info(`[Respawn] ${target.name} -> spawn`)
   }, RESPAWN_DELAY_MS)
 }
+
+const troopSystem = createTroopSystem({ io, players, battlefield, getTerrainHeight: terrainHeight, damagePlayer })
+troopSystem.start()
 
 io.on('connection', socket => {
   let chatReadyAt = 0
@@ -114,12 +135,13 @@ io.on('connection', socket => {
     if (!safeName) { socket.emit('player:error', 'Please enter a valid player name.'); return }
     const side = assignSide()
     const spawn = getSpawnPosition(side, socket.id)
-    const player = { id: socket.id, name: safeName, characterId: allowedCharacterIds.has(characterId) ? characterId : DEFAULT_CHARACTER_ID, equippedWeaponId: RIFLE_ENABLED ? 'rifle' : null, side, isAiming: false, position: spawn, rotation: 0, rotationUpdatedAt: Date.now(), animation: 'idle', hp: COMBAT_CONFIG.maxHp, alive: true, respawnTimer: null, lastAttackAt: 0, lastWeaponFireAt: 0, attackUntil: 0, activeAttack: null }
+    const player = { id: socket.id, name: safeName, characterId: allowedCharacterIds.has(characterId) ? characterId : DEFAULT_CHARACTER_ID, equippedWeaponId: RIFLE_ENABLED ? 'rifle' : null, side, isAiming: false, isBlocking: false, position: spawn, rotation: 0, rotationUpdatedAt: Date.now(), animation: 'idle', hp: COMBAT_CONFIG.maxHp, alive: true, respawnTimer: null, lastAttackAt: 0, lastWeaponFireAt: 0, attackUntil: 0, activeAttack: null, nextTroopSpawnAt: 0 }
     socket.data.playerId = socket.id
     players.set(socket.id, player)
     const existing = [...players.values()].filter(p => p.id !== socket.id).map(toClientPlayer)
     socket.emit('players:existing', existing)
     socket.emit('player:spawn', { playerId: player.id, side: player.side, position: player.position })
+    socket.emit('troops:snapshot', { serverTime: Date.now(), troops: [...troopSystem.getTroops().values()].map(troop => ({ id: troop.id, ownerId: troop.ownerId, team: troop.team, position: troop.position, yaw: troop.yaw, hp: troop.hp, maxHp: troop.maxHp, state: troop.state, targetId: troop.targetId, formationIndex: troop.formationIndex, attackSequence: troop.attackSequence, attackStartedAt: troop.attackStartedAt, alive: troop.alive })) })
     socket.broadcast.emit('player:joined', toClientPlayer(player))
     io.emit('system:message', { message: `${safeName} joined the world.`, timestamp: Date.now() })
   })
@@ -131,11 +153,24 @@ io.on('connection', socket => {
     if (player.activeAttack && ['windup', 'active'].includes(player.activeAttack.phase)) player.activeAttack.rotation = player.rotation
     const movementAnimation = ['idle','walk','run'].includes(data.animation) ? data.animation : 'idle'
     player.animation = Date.now() < player.attackUntil ? 'attack' : movementAnimation
-    socket.broadcast.emit('player:moved', { id: player.id, characterId: player.characterId, position: player.position, rotation: player.rotation, animation: player.animation })
+    socket.broadcast.emit('player:moved', { id: player.id, characterId: player.characterId, position: player.position, rotation: player.rotation, animation: player.animation, isBlocking: player.isBlocking })
+  })
+  socket.on('troops:spawnRequest', () => troopSystem.requestSpawn(socket, players.get(socket.id)))
+  socket.on('combat:block', ({ blocking } = {}) => {
+    const player = players.get(socket.id)
+    if (!player) return
+    const nextBlocking = player.alive && player.hp > 0 && blocking === true
+    if (player.isBlocking === nextBlocking) return
+    if (nextBlocking) {
+      cancelAttack(player)
+      player.animation = 'idle'
+    }
+    player.isBlocking = nextBlocking
+    io.emit('combat:blockState', { playerId: player.id, isBlocking: player.isBlocking })
   })
   socket.on('combat:attack', ({ rotation } = {}) => {
     const attacker = players.get(socket.id), now = Date.now()
-    if (!validCombatState(attacker) || !attacker.alive || attacker.hp <= 0 || now - attacker.lastAttackAt < COMBAT_CONFIG.attackCooldownMs) {
+    if (!validCombatState(attacker) || !attacker.alive || attacker.hp <= 0 || attacker.isBlocking || now - attacker.lastAttackAt < COMBAT_CONFIG.attackCooldownMs) {
       socket.emit('combat:attackRejected')
       return
     }
@@ -166,9 +201,16 @@ io.on('connection', socket => {
       if (players.get(attacker.id) !== attacker || !attacker.alive || attacker.activeAttack !== attack || attack.phase !== 'active') return
       if (!validCombatState(attacker) || !attacker.alive || attacker.hp <= 0) return
       for (const target of findAttackTargets(attacker, attack)) {
-        attack.hitTargets.add(target.id)
-        if (!target.alive || target.hp <= 0) continue
-        damagePlayer(attacker, target, COMBAT_CONFIG.attackDamage, attackId)
+        const hitKey = target.kind === 'troop' ? `troop:${target.entity.id}` : `player:${target.entity.id}`
+        attack.hitTargets.add(hitKey)
+        const victim = target.entity
+        if (!victim.alive || victim.hp <= 0) continue
+        if (target.kind === 'player' && blocksFromFront(victim, attacker)) {
+          io.emit('combat:blocked', { attackerId: attacker.id, attackId, targetId: victim.id })
+          continue
+        }
+        if (target.kind === 'troop') troopSystem.damageTroop(attacker.id, victim, COMBAT_CONFIG.attackDamage, attackId)
+        else damagePlayer(attacker, victim, COMBAT_CONFIG.attackDamage, attackId)
       }
     }
     attack.activeTimer = setTimeout(() => {
@@ -239,6 +281,7 @@ io.on('connection', socket => {
     if (!player) return
     clearTimeout(player.respawnTimer)
     cancelAttack(player)
+    troopSystem.removeOwner(player.id)
     players.delete(socket.id)
     io.emit('player:left', socket.id)
     io.emit('system:message', { message: `${player.name} left the world.`, timestamp: Date.now() })

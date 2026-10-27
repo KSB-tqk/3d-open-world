@@ -8,6 +8,12 @@ export const WORLD_SEED = 18473
 export const USE_TEST_BATTLEFIELD = true
 export const TEST_BATTLEFIELD_NAME = 'Sunmeadow Valley 1v1 V5'
 export const TEST_BATTLEFIELD_SPAWN = { x: 0, z: -250 }
+// Open terrain just beyond each base's outer back wall, for local movement tests.
+// Heights are sampled from the V5 VIS_Terrain and include the usual 0.04 ground offset.
+export const TEST_BATTLEFIELD_DEBUG_SPAWNS = {
+  A: { x: 0, y: 3.701, z: -300 },
+  B: { x: 0, y: 12.552, z: 300 },
+}
 export const SHOW_MAP_COLLIDERS = false
 export const SHOW_GROUND_DEBUG = false
 
