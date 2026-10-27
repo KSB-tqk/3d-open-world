@@ -3,6 +3,14 @@
 export const WORLD_SIZE = 600
 export const WORLD_SEED = 18473
 
+// Temporary A/B switch for the imported battlefield. Set false to return to
+// the complete procedural Sunmeadow map below.
+export const USE_TEST_BATTLEFIELD = true
+export const TEST_BATTLEFIELD_NAME = 'Sunmeadow Valley 1v1 V5'
+export const TEST_BATTLEFIELD_SPAWN = { x: 0, z: -250 }
+export const SHOW_MAP_COLLIDERS = false
+export const SHOW_GROUND_DEBUG = false
+
 export const WORLD_MAP = {
   id: 'sunmeadow-reference-map',
   displayName: 'Sunmeadow Valley',
@@ -69,6 +77,16 @@ export const WORLD_MAP = {
 
 // The server and browser use the same small deterministic spawn spread.
 export function getPlayerSpawn(playerId = '') {
+  if (USE_TEST_BATTLEFIELD) {
+    let hash = 2166136261
+    for (let i = 0; i < playerId.length; i++) hash = Math.imul(hash ^ playerId.charCodeAt(i), 16777619)
+    const angle = ((hash >>> 0) / 4294967296) * Math.PI * 2
+    const radius = 2 + ((hash >>> 8) % 5) * 1.1
+    return {
+      x: TEST_BATTLEFIELD_SPAWN.x + Math.cos(angle) * radius,
+      z: TEST_BATTLEFIELD_SPAWN.z + Math.sin(angle) * radius,
+    }
+  }
   let hash = 2166136261
   for (let i = 0; i < playerId.length; i++) hash = Math.imul(hash ^ playerId.charCodeAt(i), 16777619)
   const angle = ((hash >>> 0) / 4294967296) * Math.PI * 2

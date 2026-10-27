@@ -6,6 +6,7 @@ export const COMBAT_CONFIG = Object.freeze({
   attackActiveMs: 200,
   attackRecoveryMs: 350,
   attackAnimationMs: 750,
+  rifleFireVisualMs: 420,
   attackHitbox: Object.freeze({
     width: 1.7,
     depth: 2.2,
@@ -19,6 +20,12 @@ export const COMBAT_CONFIG = Object.freeze({
 })
 
 export const CAMERA_CONFIG = Object.freeze({
+  // Multipliers on OrbitControls' existing 2π-per-element-height rotation rate.
+  mouseSensitivityX: 1.32,
+  mouseSensitivityY: 1.05,
+  mobileSensitivityX: 1.2,
+  mobileSensitivityY: 1,
+  minimumGroundClearance: 0.7,
   explorationDistance: 6.5,
   explorationHeight: 3.4,
   combatDistance: 5.8,
@@ -26,6 +33,10 @@ export const CAMERA_CONFIG = Object.freeze({
   explorationMaxDistance: 10,
   combatHeight: 2.15,
   combatShoulderOffset: 0.32,
+  rifleAimDistance: 4.6,
+  rifleAimHeight: 2.05,
+  rifleAimShoulderOffset: 0.58,
+  rifleAimTransitionSpeed: 14,
   targetHeight: 2.15,
   targetDamping: 8,
   combatTargetDamping: 14,

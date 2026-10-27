@@ -3,7 +3,7 @@ import { Billboard, Html, Text, useAnimations, useGLTF } from '@react-three/drei
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
-import { terrainHeight } from './terrain.js'
+import { activeTerrainHeight } from './terrain.js'
 
 const MOCHI = Object.freeze({
   name: 'Mochi',
@@ -18,6 +18,7 @@ const isTyping = target => target instanceof HTMLElement && (
 )
 
 function CatModel({ playerStateRef, mobileControls, interactionDisabled }) {
+  const groupRef = useRef()
   const phaseRef = useRef('IDLE')
   const canInteractRef = useRef(false)
   const interactionDisabledRef = useRef(interactionDisabled)
@@ -43,8 +44,6 @@ function CatModel({ playerStateRef, mobileControls, interactionDisabled }) {
     return clone
   }, [scene])
   const { actions, names, mixer } = useAnimations(animations, model)
-  const groundY = terrainHeight(MOCHI.x, MOCHI.z)
-
   useEffect(() => {
     const idle = actions.Idle_Cute
     if (!idle) {
@@ -123,6 +122,7 @@ function CatModel({ playerStateRef, mobileControls, interactionDisabled }) {
   }, [pet])
 
   useFrame(() => {
+    if (groupRef.current) groupRef.current.position.y = activeTerrainHeight(MOCHI.x, MOCHI.z)
     const player = playerStateRef.current?.position
     const inRange = Boolean(player && Math.hypot(player.x - MOCHI.x, player.z - MOCHI.z) <= MOCHI.interactionDistance)
     const nextCanInteract = inRange && !interactionDisabledRef.current
@@ -132,7 +132,7 @@ function CatModel({ playerStateRef, mobileControls, interactionDisabled }) {
     }
   })
 
-  return <group position={[MOCHI.x, groundY, MOCHI.z]}>
+  return <group ref={groupRef} position={[MOCHI.x, 0, MOCHI.z]}>
     <primitive object={model} />
     <Billboard position={[0, MOCHI.height + 0.3, 0]}>
       <Text fontSize={0.24} outlineWidth={0.025} outlineColor="#243a31" color="white" anchorX="center" anchorY="middle">{MOCHI.name}</Text>

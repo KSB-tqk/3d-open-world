@@ -1,4 +1,5 @@
-import { WORLD_MAP, WORLD_SIZE } from '../world/worldConfig.js'
+import { USE_TEST_BATTLEFIELD, WORLD_MAP, WORLD_SIZE } from '../world/worldConfig.js'
+import { getTestBattlefieldGroundInfo, getTestBattlefieldHeight, MAX_GROUND_STEP_UP } from '../world/testBattlefieldTerrain.js'
 export { WORLD_SIZE }
 
 const smoothstep = (a, b, value) => {
@@ -61,4 +62,35 @@ export function terrainHeight(x, z) {
   h -= 13 * Math.exp(-(((x - lake.x) ** 2) / (lake.radiusX ** 2 * .42) + ((z - lake.z) ** 2) / (lake.radiusZ ** 2 * .42)))
 
   return h
+}
+
+export function activeTerrainHeight(x, z) {
+  if (USE_TEST_BATTLEFIELD) {
+    const testHeight = getTestBattlefieldHeight(x, z)
+    if (testHeight !== null) return testHeight
+  }
+  return terrainHeight(x, z)
+}
+
+// Player feet grounding is separate from the camera's terrain-only query so
+// authored ramps, fort walkways and bridge deck can carry the player.
+export function activeGroundInfo(x, z, referenceY = Infinity) {
+  if (USE_TEST_BATTLEFIELD) {
+    const ground = getTestBattlefieldGroundInfo(x, z, referenceY)
+    if (ground) return ground
+    const terrain = getTestBattlefieldHeight(x, z)
+    if (terrain !== null) {
+      const height = Number.isFinite(referenceY) ? Math.min(terrain, referenceY + MAX_GROUND_STEP_UP) : terrain
+      return { height, surface: height === terrain ? 'VIS_Terrain' : 'VIS_Terrain (step-limited)', terrainY: terrain, candidates: [{ surface: 'VIS_Terrain', y: terrain }] }
+    }
+    if (Number.isFinite(referenceY)) return { height: referenceY, surface: 'battlefield-loading', terrainY: null, candidates: [] }
+    const fallbackHeight = terrainHeight(x, z)
+    return { height: fallbackHeight, surface: 'map-loading fallback', terrainY: null, candidates: [] }
+  }
+  const height = terrainHeight(x, z)
+  return { height, surface: 'procedural terrain', terrainY: height, candidates: [{ surface: 'procedural terrain', y: height }] }
+}
+
+export function activeGroundHeight(x, z, referenceY = Infinity) {
+  return activeGroundInfo(x, z, referenceY).height
 }

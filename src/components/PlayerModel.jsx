@@ -4,8 +4,9 @@ import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import CharacterVisual from './CharacterVisual.jsx'
 import { COMBAT_CONFIG } from '../combat/combatConfig.js'
+import { RIFLE_ENABLED } from '../weapons/registry.js'
 
-export default function PlayerModel({ movementRef, name = 'Player', characterId, hp = COMBAT_CONFIG.maxHp, alive = true, damageFeedback }) {
+export default function PlayerModel({ movementRef, name = 'Player', characterId, hp = COMBAT_CONFIG.maxHp, alive = true, damageFeedback, equippedWeaponId = 'rifle', muzzleRef, aimPitchRef }) {
   const root = useRef(), [feedbackVisible, setFeedbackVisible] = useState(false)
   const safeHp = THREE.MathUtils.clamp(Number.isFinite(hp) ? hp : COMBAT_CONFIG.maxHp, 0, COMBAT_CONFIG.maxHp)
   const healthRatio = safeHp / COMBAT_CONFIG.maxHp
@@ -37,6 +38,6 @@ export default function PlayerModel({ movementRef, name = 'Player', characterId,
       <Text position={[0, -.18, 0]} fontSize={.16} outlineWidth={.012} outlineColor="#18252b" color="white" anchorX="center" anchorY="middle">{safeHp} / {COMBAT_CONFIG.maxHp} HP</Text>
     </Billboard>
     {feedbackVisible && damageFeedback && <Billboard position={[0, 5.05, 0]}><Text fontSize={damageFeedback.defeated ? .32 : .4} outlineWidth={.035} outlineColor="#4b1f1b" color="#ff7867" anchorX="center" anchorY="middle">{damageFeedback.defeated ? 'Player defeated' : `-${damageFeedback.damage}`}</Text></Billboard>}
-    <CharacterVisual characterId={characterId} movementRef={movementRef} alive={alive} fallback={null}/>
+    <CharacterVisual characterId={characterId} movementRef={movementRef} alive={alive} fallback={null} equippedWeaponId={RIFLE_ENABLED ? equippedWeaponId : null} muzzleRef={muzzleRef} aimPitchRef={aimPitchRef}/>
   </group>
 }
